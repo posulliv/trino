@@ -22,35 +22,9 @@ import java.util.List;
 
 public interface ResourceGroupsDao
 {
-    @SqlUpdate("CREATE TABLE IF NOT EXISTS resource_groups_global_properties (\n" +
-            "  name VARCHAR(128) NOT NULL PRIMARY KEY,\n" +
-            "  value VARCHAR(512) NULL,\n" +
-            "  CHECK (name in ('cpu_quota_period'))\n" +
-            ")")
-    void createResourceGroupsGlobalPropertiesTable();
-
     @SqlQuery("SELECT value FROM resource_groups_global_properties WHERE name = 'cpu_quota_period'")
     @UseRowMapper(ResourceGroupGlobalProperties.Mapper.class)
     List<ResourceGroupGlobalProperties> getResourceGroupGlobalProperties();
-
-    @SqlUpdate("CREATE TABLE IF NOT EXISTS resource_groups (\n" +
-            "  resource_group_id BIGINT NOT NULL AUTO_INCREMENT,\n" +
-            "  name VARCHAR(250) NOT NULL,\n" +
-            "  soft_memory_limit VARCHAR(128) NOT NULL,\n" +
-            "  max_queued INT NOT NULL,\n" +
-            "  soft_concurrency_limit INT NULL,\n" +
-            "  hard_concurrency_limit INT NOT NULL,\n" +
-            "  scheduling_policy VARCHAR(128) NULL,\n" +
-            "  scheduling_weight INT NULL,\n" +
-            "  jmx_export BOOLEAN NULL,\n" +
-            "  soft_cpu_limit VARCHAR(128) NULL,\n" +
-            "  hard_cpu_limit VARCHAR(128) NULL,\n" +
-            "  parent BIGINT NULL,\n" +
-            "  environment VARCHAR(128) NULL,\n" +
-            "  PRIMARY KEY (resource_group_id),\n" +
-            "  FOREIGN KEY (parent) REFERENCES resource_groups (resource_group_id)\n" +
-            ")")
-    void createResourceGroupsTable();
 
     @SqlQuery("SELECT resource_group_id, name, soft_memory_limit, max_queued, soft_concurrency_limit, " +
             "  hard_concurrency_limit, scheduling_policy, scheduling_weight, jmx_export, soft_cpu_limit, " +
@@ -68,29 +42,6 @@ public interface ResourceGroupsDao
     @UseRowMapper(SelectorRecord.Mapper.class)
     List<SelectorRecord> getSelectors(@Bind("environment") String environment);
 
-    @SqlUpdate("CREATE TABLE IF NOT EXISTS selectors (\n" +
-            "  resource_group_id BIGINT NOT NULL,\n" +
-            "  priority BIGINT NOT NULL,\n" +
-            "  user_regex VARCHAR(512),\n" +
-            "  source_regex VARCHAR(512),\n" +
-            "  query_type VARCHAR(512),\n" +
-            "  client_tags VARCHAR(512),\n" +
-            "  selector_resource_estimate VARCHAR(1024),\n" +
-            "  FOREIGN KEY (resource_group_id) REFERENCES resource_groups (resource_group_id)\n" +
-            ")")
-    void createSelectorsTable();
-
-    @SqlUpdate("CREATE TABLE IF NOT EXISTS exact_match_source_selectors(\n" +
-            "  environment VARCHAR(128),\n" +
-            "  source VARCHAR(512) NOT NULL,\n" +
-            "  query_type VARCHAR(512),\n" +
-            "  update_time DATETIME NOT NULL,\n" +
-            "  resource_group_id VARCHAR(256) NOT NULL,\n" +
-            "  PRIMARY KEY (environment, source, query_type),\n" +
-            "  UNIQUE (source, environment, query_type, resource_group_id)\n" +
-            ")")
-    void createExactMatchSelectorsTable();
-
     /**
      * Returns the most specific exact-match selector for a given environment, source and query type.
      * NULL values in the environment and query type fields signify wildcards.
@@ -106,4 +57,115 @@ public interface ResourceGroupsDao
             @Bind("environment") String environment,
             @Bind("source") String source,
             @Bind("query_type") String queryType);
+
+    @SqlUpdate("INSERT INTO resource_groups_global_properties\n" +
+            "(name, value) VALUES (:name, :value)")
+    void insertResourceGroupsGlobalProperties(
+            @Bind("name") String name,
+            @Bind("value") String value);
+
+    @SqlUpdate("UPDATE resource_groups_global_properties SET name = :name")
+    void updateResourceGroupsGlobalProperties(@Bind("name") String name);
+
+    @SqlUpdate("INSERT INTO resource_groups\n" +
+            "(resource_group_id, name, soft_memory_limit, max_queued, soft_concurrency_limit, hard_concurrency_limit, scheduling_policy, scheduling_weight, jmx_export, soft_cpu_limit, hard_cpu_limit, parent, environment)\n" +
+            "VALUES (:resource_group_id, :name, :soft_memory_limit, :max_queued, :soft_concurrency_limit, :hard_concurrency_limit, :scheduling_policy, :scheduling_weight, :jmx_export, :soft_cpu_limit, :hard_cpu_limit, :parent, :environment)")
+    void insertResourceGroup(
+            @Bind("resource_group_id") long resourceGroupId,
+            @Bind("name") String name,
+            @Bind("soft_memory_limit") String softMemoryLimit,
+            @Bind("max_queued") int maxQueued,
+            @Bind("soft_concurrency_limit") Integer softConcurrencyLimit,
+            @Bind("hard_concurrency_limit") int hardConcurrencyLimit,
+            @Bind("scheduling_policy") String schedulingPolicy,
+            @Bind("scheduling_weight") Integer schedulingWeight,
+            @Bind("jmx_export") Boolean jmxExport,
+            @Bind("soft_cpu_limit") String softCpuLimit,
+            @Bind("hard_cpu_limit") String hardCpuLimit,
+            @Bind("parent") Long parent,
+            @Bind("environment") String environment);
+
+    @SqlUpdate("UPDATE resource_groups SET\n" +
+            " resource_group_id = :resource_group_id\n" +
+            ", name = :name\n" +
+            ", soft_memory_limit = :soft_memory_limit\n" +
+            ", max_queued = :max_queued\n" +
+            ", soft_concurrency_limit = :soft_concurrency_limit\n" +
+            ", hard_concurrency_limit = :hard_concurrency_limit\n" +
+            ", scheduling_policy = :scheduling_policy\n" +
+            ", scheduling_weight = :scheduling_weight\n" +
+            ", jmx_export = :jmx_export\n" +
+            ", soft_cpu_limit = :soft_cpu_limit\n" +
+            ", hard_cpu_limit = :hard_cpu_limit\n" +
+            ", parent = :parent\n" +
+            ", environment = :environment\n" +
+            "WHERE resource_group_id = :resource_group_id")
+    void updateResourceGroup(
+            @Bind("resource_group_id") long resourceGroupId,
+            @Bind("name") String resourceGroup,
+            @Bind("soft_memory_limit") String softMemoryLimit,
+            @Bind("max_queued") int maxQueued,
+            @Bind("soft_concurrency_limit") Integer softConcurrencyLimit,
+            @Bind("hard_concurrency_limit") int hardConcurrencyLimit,
+            @Bind("scheduling_policy") String schedulingPolicy,
+            @Bind("scheduling_weight") Integer schedulingWeight,
+            @Bind("jmx_export") Boolean jmxExport,
+            @Bind("soft_cpu_limit") String softCpuLimit,
+            @Bind("hard_cpu_limit") String hardCpuLimit,
+            @Bind("parent") Long parent,
+            @Bind("environment") String environment);
+
+    @SqlUpdate("DELETE FROM resource_groups WHERE resource_group_id = :resource_group_id")
+    void deleteResourceGroup(@Bind("resource_group_id") long resourceGroupId);
+
+    @SqlUpdate("INSERT INTO selectors\n" +
+            "(resource_group_id, priority, user_regex, source_regex, query_type, client_tags, selector_resource_estimate)\n" +
+            "VALUES (:resource_group_id, :priority, :user_regex, :source_regex, :query_type, :client_tags, :selector_resource_estimate)")
+    void insertSelector(
+            @Bind("resource_group_id") long resourceGroupId,
+            @Bind("priority") long priority,
+            @Bind("user_regex") String userRegex,
+            @Bind("source_regex") String sourceRegex,
+            @Bind("query_type") String queryType,
+            @Bind("client_tags") String clientTags,
+            @Bind("selector_resource_estimate") String selectorResourceEstimate);
+
+    @SqlUpdate("UPDATE selectors SET\n" +
+            " resource_group_id = :resource_group_id\n" +
+            ", user_regex = :user_regex\n" +
+            ", source_regex = :source_regex\n" +
+            ", client_tags = :client_tags\n" +
+            "WHERE resource_group_id = :resource_group_id\n" +
+            " AND ((user_regex IS NULL AND :old_user_regex IS NULL) OR user_regex = :old_user_regex)\n" +
+            " AND ((source_regex IS NULL AND :old_source_regex IS NULL) OR source_regex = :old_source_regex)\n" +
+            " AND ((client_tags IS NULL AND :old_client_tags IS NULL) OR client_tags = :old_client_tags)")
+    void updateSelector(
+            @Bind("resource_group_id") long resourceGroupId,
+            @Bind("user_regex") String newUserRegex,
+            @Bind("source_regex") String newSourceRegex,
+            @Bind("client_tags") String newClientTags,
+            @Bind("old_user_regex") String oldUserRegex,
+            @Bind("old_source_regex") String oldSourceRegex,
+            @Bind("old_client_tags") String oldClientTags);
+
+    @SqlUpdate("DELETE FROM selectors WHERE resource_group_id = :resource_group_id\n" +
+            " AND ((user_regex IS NULL AND :user_regex IS NULL) OR user_regex = :user_regex)\n" +
+            " AND ((source_regex IS NULL AND :source_regex IS NULL) OR source_regex = :source_regex)\n" +
+            " AND ((client_tags IS NULL AND :client_tags IS NULL) OR client_tags = :client_tags)")
+    void deleteSelector(
+            @Bind("resource_group_id") long resourceGroupId,
+            @Bind("user_regex") String userRegex,
+            @Bind("source_regex") String sourceRegex,
+            @Bind("client_tags") String clientTags);
+
+    @SqlUpdate("DELETE FROM selectors WHERE resource_group_id = :resource_group_id")
+    void deleteSelectors(@Bind("resource_group_id") long resourceGroup);
+
+    @SqlUpdate("INSERT INTO exact_match_source_selectors (environment, source, query_type, update_time, resource_group_id)\n" +
+            "VALUES (:environment, :source, :query_type, now(), :resourceGroupId)\n")
+    void insertExactMatchSelector(
+            @Bind("environment") String environment,
+            @Bind("source") String source,
+            @Bind("query_type") String queryType,
+            @Bind("resourceGroupId") String resourceGroupId);
 }

@@ -21,12 +21,15 @@ import io.trino.plugin.resourcegroups.ResourceGroupSelector;
 import io.trino.plugin.resourcegroups.ResourceGroupSpec;
 import io.trino.plugin.resourcegroups.StaticSelector;
 import io.trino.spi.TrinoException;
+import io.trino.spi.resourcegroups.QueryType;
 import io.trino.spi.resourcegroups.ResourceGroupId;
 import io.trino.spi.resourcegroups.SchedulingPolicy;
 import io.trino.spi.resourcegroups.SelectionContext;
 import io.trino.spi.resourcegroups.SelectionCriteria;
 import io.trino.spi.session.ResourceEstimates;
-import org.jdbi.v3.core.statement.UnableToExecuteStatementException;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.time.Duration;
@@ -49,25 +52,51 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertFalse;
 import static org.testng.Assert.assertTrue;
 
+@Test(singleThreaded = true)
 public class TestDbResourceGroupConfigurationManager
 {
     private static final String ENVIRONMENT = "test";
     private static final ResourceEstimates EMPTY_RESOURCE_ESTIMATES = new ResourceEstimates(Optional.empty(), Optional.empty(), Optional.empty());
 
-    static H2DaoProvider setup(String prefix)
+    private TestingMysqlServer mysqlServer;
+
+    private MysqlDaoProvider create()
     {
-        DbResourceGroupConfig config = new DbResourceGroupConfig().setConfigDbUrl("jdbc:h2:mem:test_" + prefix + System.nanoTime() + ThreadLocalRandom.current().nextLong());
-        return new H2DaoProvider(config);
+        DbResourceGroupConfig config = new DbResourceGroupConfig()
+                .setConfigDbUrl(mysqlServer.getJdbcUrl())
+                .setConfigDbUser(mysqlServer.getUsername())
+                .setConfigDbPassword(mysqlServer.getPassword());
+        FlywayMigration migration = new FlywayMigration(config);
+        return new MysqlDaoProvider(migration, config);
+    }
+
+    @BeforeClass
+    public final void setup()
+    {
+        mysqlServer = new TestingMysqlServer()
+                .withDatabaseName("resource_groups")
+                .withUsername("test")
+                .withPassword("test");
+        mysqlServer.start();
+    }
+
+    @AfterClass(alwaysRun = true)
+    public final void close()
+    {
+        mysqlServer.close();
+    }
+
+    @AfterMethod(alwaysRun = true)
+    public void cleanupTables()
+    {
+        deleteAll();
     }
 
     @Test
     public void testEnvironments()
     {
-        H2DaoProvider daoProvider = setup("test_configuration");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         String prodEnvironment = "prod";
         String devEnvironment = "dev";
         dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
@@ -97,18 +126,15 @@ public class TestDbResourceGroupConfigurationManager
         assertEqualsResourceGroup(devGlobal, "1MB", 1000, 100, 100, WEIGHTED, DEFAULT_WEIGHT, true, Duration.ofHours(1), Duration.ofDays(1));
         assertEquals(manager.getSelectors().size(), 1);
         ResourceGroupSelector devSelector = manager.getSelectors().get(0);
-        ResourceGroupId devResourceGroupId = devSelector.match(new SelectionCriteria(true, "dev_user", ImmutableSet.of(), Optional.empty(), ImmutableSet.of(), EMPTY_RESOURCE_ESTIMATES, Optional.empty())).get().getResourceGroupId();
+        ResourceGroupId devResourceGroupId = devSelector.match(new SelectionCriteria(true, "dev_user", ImmutableSet.of(), Optional.empty(), ImmutableSet.of(), EMPTY_RESOURCE_ESTIMATES, Optional.of(QueryType.SELECT.name()))).get().getResourceGroupId();
         assertEquals(devResourceGroupId.toString(), "dev_global");
     }
 
     @Test
     public void testConfiguration()
     {
-        H2DaoProvider daoProvider = setup("test_configuration");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, "weighted", null, true, "1h", "1d", null, ENVIRONMENT);
         dao.insertResourceGroup(2, "sub", "2MB", 4, 3, 3, null, 5, null, null, null, 1L, ENVIRONMENT);
@@ -127,16 +153,13 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testDuplicateRoots()
     {
-        H2DaoProvider daoProvider = setup("test_dup_roots");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
         assertThatThrownBy(() -> dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, null, null, null, null, null, null, ENVIRONMENT))
-                .isInstanceOfSatisfying(UnableToExecuteStatementException.class, ex -> {
-                    assertTrue(ex.getCause() instanceof org.h2.jdbc.JdbcException);
-                    assertTrue(ex.getCause().getMessage().startsWith("Unique index or primary key violation"));
+                .isInstanceOfSatisfying(java.lang.RuntimeException.class, ex -> {
+                    assertTrue(ex.getCause() instanceof java.sql.SQLIntegrityConstraintViolationException);
+                    assertTrue(ex.getCause().getMessage().startsWith("Duplicate entry"));
                 });
         dao.insertSelector(1, 1, null, null, null, null, null);
     }
@@ -144,17 +167,14 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testDuplicateGroups()
     {
-        H2DaoProvider daoProvider = setup("test_dup_subs");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
         dao.insertResourceGroup(2, "sub", "1MB", 1000, 100, 100, null, null, null, null, null, 1L, ENVIRONMENT);
         assertThatThrownBy(() -> dao.insertResourceGroup(2, "sub", "1MB", 1000, 100, 100, null, null, null, null, null, 1L, ENVIRONMENT))
-                .isInstanceOfSatisfying(UnableToExecuteStatementException.class, ex -> {
-                    assertTrue(ex.getCause() instanceof org.h2.jdbc.JdbcException);
-                    assertTrue(ex.getCause().getMessage().startsWith("Unique index or primary key violation"));
+                .isInstanceOfSatisfying(java.lang.RuntimeException.class, ex -> {
+                    assertTrue(ex.getCause() instanceof java.sql.SQLIntegrityConstraintViolationException);
+                    assertTrue(ex.getCause().getMessage().startsWith("Duplicate entry"));
                 });
         dao.insertSelector(2, 2, null, null, null, null, null);
     }
@@ -162,11 +182,8 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testMissing()
     {
-        H2DaoProvider daoProvider = setup("test_missing");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, "weighted", null, true, "1h", "1d", null, ENVIRONMENT);
         dao.insertResourceGroup(2, "sub", "2MB", 4, 3, 3, null, 5, null, null, null, 1L, ENVIRONMENT);
         dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
@@ -183,11 +200,8 @@ public class TestDbResourceGroupConfigurationManager
     public void testReconfig()
             throws Exception
     {
-        H2DaoProvider daoProvider = setup("test_reconfig");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, "weighted", null, true, "1h", "1d", null, ENVIRONMENT);
         dao.insertResourceGroup(2, "sub", "2MB", 4, 3, 3, null, 5, null, null, null, 1L, ENVIRONMENT);
         dao.insertSelector(2, 1, null, null, null, null, null);
@@ -220,12 +234,8 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testExactMatchSelector()
     {
-        H2DaoProvider daoProvider = setup("test_exact_match_selector");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsGlobalPropertiesTable();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
-        dao.createExactMatchSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "1MB", 1000, 100, 100, "weighted", null, true, "1h", "1d", null, ENVIRONMENT);
         dao.insertResourceGroup(2, "sub", "2MB", 4, 3, 3, null, 5, null, null, null, 1L, ENVIRONMENT);
         dao.insertSelector(2, 1, null, null, null, null, null);
@@ -247,11 +257,10 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testSelectorPriority()
     {
-        H2DaoProvider daoProvider = setup("selectors");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "100%", 100, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
+        dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
 
         final int numberOfUsers = 100;
         List<String> expectedUsers = new ArrayList<>();
@@ -289,11 +298,10 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testInvalidConfiguration()
     {
-        H2DaoProvider daoProvider = setup("selectors");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "100%", 100, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
+        dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
 
         DbResourceGroupConfigurationManager manager = new DbResourceGroupConfigurationManager(
                 (poolId, listener) -> {},
@@ -309,11 +317,10 @@ public class TestDbResourceGroupConfigurationManager
     @Test
     public void testRefreshInterval()
     {
-        H2DaoProvider daoProvider = setup("selectors");
-        H2ResourceGroupsDao dao = daoProvider.get();
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        MysqlDaoProvider daoProvider = create();
+        ResourceGroupsDao dao = daoProvider.get();
         dao.insertResourceGroup(1, "global", "100%", 100, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
+        dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
 
         DbResourceGroupConfigurationManager manager = new DbResourceGroupConfigurationManager(
                 (poolId, listener) -> {},
@@ -321,14 +328,13 @@ public class TestDbResourceGroupConfigurationManager
                 daoProvider.get(),
                 ENVIRONMENT);
 
-        dao.dropSelectorsTable();
         manager.load();
 
         assertTrinoExceptionThrownBy(manager::getSelectors)
-                .hasMessage("Selectors cannot be fetched from database");
+                .hasMessage("No selectors are configured");
 
         assertTrinoExceptionThrownBy(manager::getRootGroups)
-                .hasMessage("Root groups cannot be fetched from database");
+                .hasMessage("No root groups are configured");
 
         manager.destroy();
     }
@@ -354,5 +360,17 @@ public class TestDbResourceGroupConfigurationManager
         assertEquals(group.getJmxExport(), jmxExport);
         assertEquals(group.getSoftCpuLimit(), softCpuLimit);
         assertEquals(group.getHardCpuLimit(), hardCpuLimit);
+    }
+
+    private void deleteAll()
+    {
+        String propsCleanup = "DELETE FROM resource_groups_global_properties";
+        String selectorsCleanup = "DELETE FROM selectors";
+        String sourceSelectorsCleanup = "DELETE FROM exact_match_source_selectors";
+        String resourceGroupCleanup = "DELETE FROM resource_groups";
+        mysqlServer.executeSql(propsCleanup);
+        mysqlServer.executeSql(selectorsCleanup);
+        mysqlServer.executeSql(sourceSelectorsCleanup);
+        mysqlServer.executeSql(resourceGroupCleanup);
     }
 }

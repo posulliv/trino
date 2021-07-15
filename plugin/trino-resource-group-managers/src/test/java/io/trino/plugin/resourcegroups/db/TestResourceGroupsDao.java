@@ -22,13 +22,15 @@ import io.trino.plugin.resourcegroups.SelectorResourceEstimate;
 import io.trino.plugin.resourcegroups.SelectorResourceEstimate.Range;
 import io.trino.spi.resourcegroups.ResourceGroupId;
 import org.jdbi.v3.core.statement.UnableToExecuteStatementException;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
 
 import static io.airlift.json.JsonCodec.jsonCodec;
@@ -44,6 +46,7 @@ import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 
+@Test(singleThreaded = true)
 public class TestResourceGroupsDao
 {
     private static final String ENVIRONMENT = "test";
@@ -61,24 +64,55 @@ public class TestResourceGroupsDao
     private static final JsonCodec<List<String>> LIST_STRING_CODEC = listJsonCodec(String.class);
     private static final JsonCodec<SelectorResourceEstimate> SELECTOR_RESOURCE_ESTIMATE_JSON_CODEC = jsonCodec(SelectorResourceEstimate.class);
 
-    static H2ResourceGroupsDao setup(String prefix)
+    private TestingMysqlServer mysqlServer;
+
+    private ResourceGroupsDao setup()
     {
-        DbResourceGroupConfig config = new DbResourceGroupConfig().setConfigDbUrl("jdbc:h2:mem:test_" + prefix + System.nanoTime() + ThreadLocalRandom.current().nextLong());
-        return new H2DaoProvider(config).get();
+        DbResourceGroupConfig config = new DbResourceGroupConfig()
+                .setConfigDbUrl(mysqlServer.getJdbcUrl())
+                .setConfigDbUser(mysqlServer.getUsername())
+                .setConfigDbPassword(mysqlServer.getPassword());
+        FlywayMigration migration = new FlywayMigration(config);
+        return new MysqlDaoProvider(migration, config).get();
+    }
+
+    @BeforeClass
+    public final void create()
+    {
+        mysqlServer = new TestingMysqlServer()
+                .withDatabaseName("resource_groups")
+                .withUsername("test")
+                .withPassword("test");
+        mysqlServer.start();
+        DbResourceGroupConfig cfg = new DbResourceGroupConfig()
+                .setConfigDbUrl(mysqlServer.getJdbcUrl())
+                .setConfigDbUser(mysqlServer.getUsername())
+                .setConfigDbPassword(mysqlServer.getPassword());
+    }
+
+    @AfterClass(alwaysRun = true)
+    public final void close()
+    {
+        mysqlServer.close();
+    }
+
+    @AfterMethod
+    public void cleanupTables()
+    {
+        deleteAll();
     }
 
     @Test
     public void testResourceGroups()
     {
-        H2ResourceGroupsDao dao = setup("resource_groups");
-        dao.createResourceGroupsTable();
+        ResourceGroupsDao dao = setup();
         Map<Long, ResourceGroupSpecBuilder> map = new HashMap<>();
         testResourceGroupInsert(dao, map);
         testResourceGroupUpdate(dao, map);
         testResourceGroupDelete(dao, map);
     }
 
-    private static void testResourceGroupInsert(H2ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
+    private void testResourceGroupInsert(ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
     {
         dao.insertResourceGroup(1, "global", "100%", 100, 100, 100, null, null, null, null, null, null, ENVIRONMENT);
         dao.insertResourceGroup(2, "bi", "50%", 50, 50, 50, null, null, null, null, null, 1L, ENVIRONMENT);
@@ -89,7 +123,7 @@ public class TestResourceGroupsDao
         compareResourceGroups(map, records);
     }
 
-    private static void testResourceGroupUpdate(H2ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
+    private void testResourceGroupUpdate(ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
     {
         dao.updateResourceGroup(2, "bi", "40%", 40, 30, 30, null, null, true, null, null, 1L, ENVIRONMENT);
         ResourceGroupSpecBuilder updated = new ResourceGroupSpecBuilder(2, new ResourceGroupNameTemplate("bi"), "40%", 40, Optional.of(30), 30, Optional.empty(), Optional.empty(), Optional.of(true), Optional.empty(), Optional.empty(), Optional.of(1L));
@@ -97,7 +131,7 @@ public class TestResourceGroupsDao
         compareResourceGroups(map, dao.getResourceGroups(ENVIRONMENT));
     }
 
-    private static void testResourceGroupDelete(H2ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
+    private void testResourceGroupDelete(ResourceGroupsDao dao, Map<Long, ResourceGroupSpecBuilder> map)
     {
         dao.deleteResourceGroup(2);
         map.remove(2L);
@@ -107,9 +141,7 @@ public class TestResourceGroupsDao
     @Test
     public void testSelectors()
     {
-        H2ResourceGroupsDao dao = setup("selectors");
-        dao.createResourceGroupsTable();
-        dao.createSelectorsTable();
+        ResourceGroupsDao dao = setup();
         Map<Long, SelectorRecord> map = new HashMap<>();
         testSelectorInsert(dao, map);
         testSelectorUpdate(dao, map);
@@ -119,7 +151,7 @@ public class TestResourceGroupsDao
         testSelectorMultiDelete(dao, map);
     }
 
-    private static void testSelectorInsert(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorInsert(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         map.put(2L,
                 new SelectorRecord(
@@ -161,7 +193,7 @@ public class TestResourceGroupsDao
         compareSelectors(map, records);
     }
 
-    private static void testSelectorUpdate(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorUpdate(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         dao.updateSelector(2, "ping.*", "ping_source", LIST_STRING_CODEC.toJson(ImmutableList.of("tag1")), "ping_user", ".*", null);
         SelectorRecord updated = new SelectorRecord(
@@ -176,7 +208,7 @@ public class TestResourceGroupsDao
         compareSelectors(map, dao.getSelectors(ENVIRONMENT));
     }
 
-    private static void testSelectorUpdateNull(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorUpdateNull(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         SelectorRecord updated = new SelectorRecord(2, 3L, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         map.put(2L, updated);
@@ -195,14 +227,14 @@ public class TestResourceGroupsDao
         compareSelectors(map, dao.getSelectors(ENVIRONMENT));
     }
 
-    private static void testSelectorDelete(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorDelete(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         map.remove(2L);
         dao.deleteSelector(2, "ping.*", "ping_source", LIST_STRING_CODEC.toJson(ImmutableList.of("tag1", "tag2")));
         compareSelectors(map, dao.getSelectors(ENVIRONMENT));
     }
 
-    private static void testSelectorDeleteNull(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorDeleteNull(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         dao.updateSelector(3, null, null, null, "admin_user", ".*", LIST_STRING_CODEC.toJson(ImmutableList.of("tag1", "tag2")));
         SelectorRecord nullRegexes = new SelectorRecord(3L, 2L, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -213,7 +245,7 @@ public class TestResourceGroupsDao
         compareSelectors(map, dao.getSelectors(ENVIRONMENT));
     }
 
-    private static void testSelectorMultiDelete(H2ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
+    private void testSelectorMultiDelete(ResourceGroupsDao dao, Map<Long, SelectorRecord> map)
     {
         if (dao != null) {
             return;
@@ -237,8 +269,7 @@ public class TestResourceGroupsDao
     @Test
     public void testGlobalResourceGroupProperties()
     {
-        H2ResourceGroupsDao dao = setup("global_properties");
-        dao.createResourceGroupsGlobalPropertiesTable();
+        ResourceGroupsDao dao = setup();
         dao.insertResourceGroupsGlobalProperties("cpu_quota_period", "1h");
         ResourceGroupGlobalProperties globalProperties = new ResourceGroupGlobalProperties(Optional.of(new Duration(1, HOURS)));
         ResourceGroupGlobalProperties records = dao.getResourceGroupGlobalProperties().get(0);
@@ -253,17 +284,16 @@ public class TestResourceGroupsDao
         try {
             dao.updateResourceGroupsGlobalProperties("invalid_property_name");
         }
-        catch (UnableToExecuteStatementException ex) {
-            assertTrue(ex.getCause() instanceof org.h2.jdbc.JdbcException);
-            assertTrue(ex.getCause().getMessage().startsWith("Check constraint violation:"));
+        catch (RuntimeException ex) {
+            assertTrue(ex.getCause() instanceof java.sql.SQLIntegrityConstraintViolationException);
+            assertTrue(ex.getCause().getMessage().startsWith("Duplicate entry"));
         }
     }
 
     @Test
     public void testExactMatchSelector()
     {
-        H2ResourceGroupsDao dao = setup("exact_match_selector");
-        dao.createExactMatchSelectorsTable();
+        ResourceGroupsDao dao = setup();
 
         ResourceGroupId resourceGroupId1 = new ResourceGroupId(ImmutableList.of("global", "test", "user", "insert"));
         ResourceGroupId resourceGroupId2 = new ResourceGroupId(ImmutableList.of("global", "test", "user", "select"));
@@ -299,5 +329,17 @@ public class TestResourceGroupsDao
             assertEquals(record.getSourceRegex().map(Pattern::pattern), expected.getSourceRegex().map(Pattern::pattern));
             assertEquals(record.getSelectorResourceEstimate(), expected.getSelectorResourceEstimate());
         }
+    }
+
+    private void deleteAll()
+    {
+        String propsCleanup = "DELETE FROM resource_groups_global_properties";
+        String selectorsCleanup = "DELETE FROM selectors";
+        String sourceSelectorsCleanup = "DELETE FROM exact_match_source_selectors";
+        String resourceGroupCleanup = "DELETE FROM resource_groups";
+        mysqlServer.executeSql(propsCleanup);
+        mysqlServer.executeSql(selectorsCleanup);
+        mysqlServer.executeSql(sourceSelectorsCleanup);
+        mysqlServer.executeSql(resourceGroupCleanup);
     }
 }

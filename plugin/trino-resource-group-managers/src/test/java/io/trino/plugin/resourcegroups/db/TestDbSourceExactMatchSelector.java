@@ -20,11 +20,11 @@ import io.trino.spi.resourcegroups.ResourceGroupId;
 import io.trino.spi.resourcegroups.SelectionContext;
 import io.trino.spi.resourcegroups.SelectionCriteria;
 import io.trino.spi.session.ResourceEstimates;
+import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
-import java.util.concurrent.ThreadLocalRandom;
 
 import static io.trino.spi.resourcegroups.QueryType.DELETE;
 import static io.trino.spi.resourcegroups.QueryType.INSERT;
@@ -35,14 +35,29 @@ public class TestDbSourceExactMatchSelector
 {
     private static final JsonCodec<ResourceGroupId> CODEC = JsonCodec.jsonCodec(ResourceGroupId.class);
     private static final ResourceEstimates EMPTY_RESOURCE_ESTIMATES = new ResourceEstimates(Optional.empty(), Optional.empty(), Optional.empty());
-    private H2ResourceGroupsDao dao;
+    private ResourceGroupsDao dao;
+    private TestingMysqlServer mysqlServer;
 
     @BeforeClass
     public void setup()
     {
-        DbResourceGroupConfig config = new DbResourceGroupConfig().setConfigDbUrl("jdbc:h2:mem:test_db-exact-match-selector" + System.nanoTime() + ThreadLocalRandom.current().nextLong());
-        dao = new H2DaoProvider(config).get();
-        dao.createExactMatchSelectorsTable();
+        mysqlServer = new TestingMysqlServer()
+                .withDatabaseName("resource_groups")
+                .withUsername("test")
+                .withPassword("test");
+        mysqlServer.start();
+        DbResourceGroupConfig cfg = new DbResourceGroupConfig()
+                .setConfigDbUrl(mysqlServer.getJdbcUrl())
+                .setConfigDbUser(mysqlServer.getUsername())
+                .setConfigDbPassword(mysqlServer.getPassword());
+        FlywayMigration migration = new FlywayMigration(cfg);
+        dao = new MysqlDaoProvider(migration, cfg).get();
+    }
+
+    @AfterClass(alwaysRun = true)
+    public final void close()
+    {
+        mysqlServer.close();
     }
 
     @Test
