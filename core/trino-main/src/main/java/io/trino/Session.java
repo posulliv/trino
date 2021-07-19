@@ -49,7 +49,6 @@ import java.util.stream.Collectors;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static io.trino.client.ProtocolHeaders.TRINO_HEADERS;
 import static io.trino.connector.CatalogName.createInformationSchemaCatalogName;
 import static io.trino.connector.CatalogName.createSystemTablesCatalogName;
@@ -300,13 +299,8 @@ public final class Session
         return protocolHeaders;
     }
 
-    public Session beginTransactionId(TransactionId transactionId, TransactionManager transactionManager, AccessControl accessControl)
+    private void validateSystemProperties(AccessControl accessControl, Map<String, String> systemProperties)
     {
-        requireNonNull(transactionId, "transactionId is null");
-        checkArgument(this.transactionId.isEmpty(), "Session already has an active transaction");
-        requireNonNull(transactionManager, "transactionManager is null");
-        requireNonNull(accessControl, "accessControl is null");
-
         for (Entry<String, String> property : systemProperties.entrySet()) {
             // verify permissions
             accessControl.checkCanSetSystemSessionProperty(identity, property.getKey());
@@ -314,9 +308,14 @@ public final class Session
             // validate session property value
             sessionPropertyManager.validateSystemSessionProperty(property.getKey(), property.getValue());
         }
+    }
 
-        // Now that there is a transaction, the catalog name can be resolved to a connector, and the catalog properties can be validated
-        ImmutableMap.Builder<CatalogName, Map<String, String>> connectorProperties = ImmutableMap.builder();
+    private void validateCatalogProperties(
+            TransactionId transactionId,
+            TransactionManager transactionManager,
+            AccessControl accessControl,
+            ImmutableMap.Builder<CatalogName, Map<String, String>> connectorProperties)
+    {
         for (Entry<String, Map<String, String>> catalogEntry : unprocessedCatalogProperties.entrySet()) {
             String catalogName = catalogEntry.getKey();
             Map<String, String> catalogProperties = catalogEntry.getValue();
@@ -336,8 +335,14 @@ public final class Session
             }
             connectorProperties.put(catalog, catalogProperties);
         }
+    }
 
-        ImmutableMap.Builder<String, SelectedRole> roles = ImmutableMap.builder();
+    private void buildRoles(
+            TransactionId transactionId,
+            TransactionManager transactionManager,
+            AccessControl accessControl,
+            ImmutableMap.Builder<String, SelectedRole> roles)
+    {
         for (Entry<String, SelectedRole> entry : identity.getRoles().entrySet()) {
             String catalogName = entry.getKey();
             SelectedRole role = entry.getValue();
@@ -359,6 +364,21 @@ public final class Session
                 roles.put(systemTablesCatalogName, role);
             }
         }
+    }
+
+    public Session beginTransactionId(TransactionId transactionId, TransactionManager transactionManager, AccessControl accessControl)
+    {
+        requireNonNull(transactionId, "transactionId is null");
+        checkArgument(this.transactionId.isEmpty(), "Session already has an active transaction");
+        requireNonNull(transactionManager, "transactionManager is null");
+        requireNonNull(accessControl, "accessControl is null");
+
+        validateSystemProperties(accessControl, systemProperties);
+        // Now that there is a transaction, the catalog name can be resolved to a connector, and the catalog properties can be validated
+        ImmutableMap.Builder<CatalogName, Map<String, String>> connectorProperties = ImmutableMap.builder();
+        ImmutableMap.Builder<String, SelectedRole> roles = ImmutableMap.builder();
+        validateCatalogProperties(transactionId, transactionManager, accessControl, connectorProperties);
+        buildRoles(transactionId, transactionManager, accessControl, roles);
 
         return new Session(
                 queryId,
@@ -389,28 +409,33 @@ public final class Session
                 protocolHeaders);
     }
 
-    public Session withDefaultProperties(Map<String, String> systemPropertyDefaults, Map<String, Map<String, String>> catalogPropertyDefaults)
+    public Session withDefaultProperties(Map<String, String> systemPropertyDefaults, Map<String, Map<String, String>> catalogPropertyDefaults, AccessControl accessControl, TransactionManager transactionManager)
     {
         requireNonNull(systemPropertyDefaults, "systemPropertyDefaults is null");
         requireNonNull(catalogPropertyDefaults, "catalogPropertyDefaults is null");
 
-        // to remove this check properties must be authenticated and validated as in beginTransactionId
-        checkState(
-                this.transactionId.isEmpty() && this.connectorProperties.isEmpty(),
-                "Session properties cannot be overridden once a transaction is active");
-
         Map<String, String> systemProperties = new HashMap<>();
         systemProperties.putAll(systemPropertyDefaults);
         systemProperties.putAll(this.systemProperties);
-
-        Map<String, Map<String, String>> connectorProperties = catalogPropertyDefaults.entrySet().stream()
+        ImmutableMap.Builder<CatalogName, Map<String, String>> connectorProperties = ImmutableMap.builder();
+        ImmutableMap.Builder<String, SelectedRole> roles = ImmutableMap.builder();
+        Map<String, Map<String, String>> connectorPropertiesMap = catalogPropertyDefaults.entrySet().stream()
                 .map(entry -> Maps.immutableEntry(entry.getKey(), new HashMap<>(entry.getValue())))
                 .collect(Collectors.toMap(Entry::getKey, Entry::getValue));
-        for (Entry<String, Map<String, String>> catalogProperties : this.unprocessedCatalogProperties.entrySet()) {
-            String catalog = catalogProperties.getKey();
-            for (Entry<String, String> entry : catalogProperties.getValue().entrySet()) {
-                connectorProperties.computeIfAbsent(catalog, id -> new HashMap<>())
-                        .put(entry.getKey(), entry.getValue());
+        boolean inTransaction = this.getTransactionId().isPresent();
+        if (inTransaction) {
+            validateSystemProperties(accessControl, systemProperties);
+            // Now that there is a transaction, the catalog name can be resolved to a connector, and the catalog properties can be validated
+            validateCatalogProperties(this.getRequiredTransactionId(), transactionManager, accessControl, connectorProperties);
+            buildRoles(this.getRequiredTransactionId(), transactionManager, accessControl, roles);
+        }
+        else {
+            for (Entry<String, Map<String, String>> catalogProperties : this.unprocessedCatalogProperties.entrySet()) {
+                String catalog = catalogProperties.getKey();
+                for (Entry<String, String> entry : catalogProperties.getValue().entrySet()) {
+                    connectorPropertiesMap.computeIfAbsent(catalog, id -> new HashMap<>())
+                            .put(entry.getKey(), entry.getValue());
+                }
             }
         }
 
@@ -418,7 +443,9 @@ public final class Session
                 queryId,
                 transactionId,
                 clientTransactionSupport,
-                identity,
+                inTransaction ? Identity.from(identity)
+                        .withRoles(roles.build())
+                        .build() : identity,
                 source,
                 catalog,
                 schema,
@@ -434,8 +461,8 @@ public final class Session
                 resourceEstimates,
                 start,
                 systemProperties,
-                ImmutableMap.of(),
-                connectorProperties,
+                inTransaction ? connectorProperties.build() : ImmutableMap.of(),
+                inTransaction ? ImmutableMap.of() : connectorPropertiesMap,
                 sessionPropertyManager,
                 preparedStatements,
                 protocolHeaders);
