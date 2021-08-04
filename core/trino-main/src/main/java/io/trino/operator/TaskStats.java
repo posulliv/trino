@@ -83,7 +83,7 @@ public class TaskStats
     private final int fullGcCount;
     private final Duration fullGcTime;
 
-    private final List<PipelineStats> pipelines;
+    private final List<PipelineStats> pipelines; // do we need this? only for stage performance page
 
     public TaskStats(DateTime createTime, DateTime endTime)
     {

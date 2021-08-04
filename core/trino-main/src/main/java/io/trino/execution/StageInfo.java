@@ -36,13 +36,13 @@ public class StageInfo
 {
     private final StageId stageId;
     private final StageState state;
-    private final PlanFragment plan;
-    private final List<Type> types;
+    private final PlanFragment plan; // optional - needed for live plan
+    private final List<Type> types; // optional
     private final StageStats stageStats;
     private final List<TaskInfo> tasks;
     private final List<StageInfo> subStages;
     private final ExecutionFailureInfo failureCause;
-    private final Map<PlanNodeId, TableInfo> tables;
+    private final Map<PlanNodeId, TableInfo> tables; // optional
 
     @JsonCreator
     public StageInfo(
