@@ -122,10 +122,10 @@ export class QueryListItem extends React.Component {
                 </span>
             </div>);
 
-        let user = (<span>{query.session.user}</span>);
-        if (query.session.principal) {
+        let user = (<span>{query.user}</span>);
+        if (query.principal) {
             user = (
-                <span>{query.session.user}<span className="glyphicon glyphicon-lock-inverse" style={GLYPHICON_DEFAULT}/></span>
+                <span>{query.user}<span className="glyphicon glyphicon-lock-inverse" style={GLYPHICON_DEFAULT}/></span>
             );
         }
 
@@ -153,7 +153,7 @@ export class QueryListItem extends React.Component {
                             <div className="col-xs-12">
                                 <span data-toggle="tooltip" data-placement="right" title="Source">
                                     <span className="glyphicon glyphicon-log-in" style={GLYPHICON_DEFAULT}/>&nbsp;&nbsp;
-                                    <span>{truncateString(query.session.source, 35)}</span>
+                                    <span>{truncateString(query.source, 35)}</span>
                                 </span>
                             </div>
                         </div>
@@ -303,11 +303,11 @@ export class QueryList extends React.Component {
                     return true;
                 }
 
-                if (query.session.user && query.session.user.toLowerCase().indexOf(term) !== -1) {
+                if (query.user && query.user.toLowerCase().indexOf(term) !== -1) {
                     return true;
                 }
 
-                if (query.session.source && query.session.source.toLowerCase().indexOf(term) !== -1) {
+                if (query.source && query.source.toLowerCase().indexOf(term) !== -1) {
                     return true;
                 }
 
