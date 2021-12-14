@@ -25,11 +25,19 @@ import io.trino.spi.resourcegroups.ResourceGroupConfigurationManagerContext;
 import io.trino.spi.resourcegroups.ResourceGroupConfigurationManagerFactory;
 import org.weakref.jmx.guice.MBeanModule;
 
+import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import static java.lang.String.format;
+import static java.util.regex.Matcher.quoteReplacement;
 
 public class DbResourceGroupConfigurationManagerFactory
         implements ResourceGroupConfigurationManagerFactory
 {
+    private static final Pattern ENV_PATTERN = Pattern.compile("\\$\\{ENV:([a-zA-Z][a-zA-Z0-9_]*)}");
+
     @Override
     public String getName()
     {
@@ -39,6 +47,7 @@ public class DbResourceGroupConfigurationManagerFactory
     @Override
     public ResourceGroupConfigurationManager<?> create(Map<String, String> config, ResourceGroupConfigurationManagerContext context)
     {
+        config = replaceEnvironmentVariables(config, System.getenv());
         FlywayMigration.migrate(new ConfigurationFactory(config).build(DbResourceGroupConfig.class));
         Bootstrap app = new Bootstrap(
                 new MBeanModule(),
@@ -55,5 +64,25 @@ public class DbResourceGroupConfigurationManagerFactory
                 .initialize();
 
         return injector.getInstance(DbResourceGroupConfigurationManager.class);
+    }
+
+    private Map<String, String> replaceEnvironmentVariables(Map<String, String> properties, Map<String, String> environment)
+    {
+        Map<String, String> replaced = new HashMap<>();
+        properties.forEach((propertyKey, propertyValue) -> {
+            StringBuilder replacedPropertyValue = new StringBuilder();
+            Matcher matcher = ENV_PATTERN.matcher(propertyValue);
+            while (matcher.find()) {
+                String envName = matcher.group(1);
+                String envValue = environment.get(envName);
+                if (envValue == null) {
+                    throw new RuntimeException(format("Configuration property '%s' references unset environment variable '%s'", propertyKey, envName));
+                }
+                matcher.appendReplacement(replacedPropertyValue, quoteReplacement(envValue));
+            }
+            matcher.appendTail(replacedPropertyValue);
+            replaced.put(propertyKey, replacedPropertyValue.toString());
+        });
+        return replaced;
     }
 }
