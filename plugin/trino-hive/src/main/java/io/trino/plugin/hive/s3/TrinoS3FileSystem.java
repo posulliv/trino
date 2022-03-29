@@ -211,6 +211,8 @@ public class TrinoS3FileSystem
     public static final String S3_STS_ENDPOINT = "trino.s3.sts.endpoint";
     public static final String S3_STS_REGION = "trino.s3.sts.region";
 
+    public static final String S3_MAX_KEYS_FOR_LIST_OBJECTS = "trino.s3.max-keys-for-list-objects";
+
     private static final Logger log = Logger.get(TrinoS3FileSystem.class);
     private static final TrinoS3FileSystemStats STATS = new TrinoS3FileSystemStats();
     private static final RequestMetricCollector METRIC_COLLECTOR = new TrinoS3FileSystemMetricCollector(STATS);
@@ -249,6 +251,7 @@ public class TrinoS3FileSystem
     private int streamingUploadPartSize;
     private TrinoS3StorageClass s3StorageClass;
     private String s3RoleSessionName;
+    private int maxKeysForListObjects;
 
     private final ExecutorService uploadExecutor = newCachedThreadPool(threadsNamed("s3-upload-%s"));
 
@@ -298,6 +301,7 @@ public class TrinoS3FileSystem
         this.streamingUploadPartSize = toIntExact(conf.getLong(S3_STREAMING_UPLOAD_PART_SIZE, defaults.getS3StreamingPartSize().toBytes()));
         this.s3StorageClass = conf.getEnum(S3_STORAGE_CLASS, defaults.getS3StorageClass());
         this.s3RoleSessionName = conf.get(S3_ROLE_SESSION_NAME, S3_DEFAULT_ROLE_SESSION_NAME);
+        this.maxKeysForListObjects = conf.getInt(S3_MAX_KEYS_FOR_LIST_OBJECTS, defaults.getS3MaxKeysForListObjects());
 
         ClientConfiguration configuration = new ClientConfiguration()
                 .withMaxErrorRetry(maxErrorRetries)
@@ -386,7 +390,7 @@ public class TrinoS3FileSystem
     {
         // Either a single level or full listing, depending on the recursive flag, no "directories"
         // included in either path
-        return new S3ObjectsV2RemoteIterator(listPath(path, OptionalInt.empty(), recursive ? ListingMode.RECURSIVE_FILES_ONLY : ListingMode.SHALLOW_FILES_ONLY));
+        return new S3ObjectsV2RemoteIterator(listPath(path, OptionalInt.of(this.maxKeysForListObjects), recursive ? ListingMode.RECURSIVE_FILES_ONLY : ListingMode.SHALLOW_FILES_ONLY));
     }
 
     public RemoteIterator<LocatedFileStatus> listFilesByPrefix(Path prefix, boolean recursive)
@@ -400,7 +404,7 @@ public class TrinoS3FileSystem
     public RemoteIterator<LocatedFileStatus> listLocatedStatus(Path path)
     {
         STATS.newListLocatedStatusCall();
-        return new S3ObjectsV2RemoteIterator(listPath(path, OptionalInt.empty(), ListingMode.SHALLOW_ALL));
+        return new S3ObjectsV2RemoteIterator(listPath(path, OptionalInt.of(this.maxKeysForListObjects), ListingMode.SHALLOW_ALL));
     }
 
     private static final class S3ObjectsV2RemoteIterator

@@ -81,6 +81,7 @@ public class HiveS3Config
     private boolean s3preemptiveBasicProxyAuth;
     private String s3StsEndpoint;
     private String s3StsRegion;
+    private int s3MaxKeysForListObjects = 1000;
 
     public String getS3AwsAccessKey()
     {
@@ -614,6 +615,21 @@ public class HiveS3Config
     public HiveS3Config setS3StsRegion(String s3StsRegion)
     {
         this.s3StsRegion = s3StsRegion;
+        return this;
+    }
+
+    @NotNull
+    @Min(1)
+    public int getS3MaxKeysForListObjects()
+    {
+        return s3MaxKeysForListObjects;
+    }
+
+    @Config("hive.s3.max-keys-for-list-objects")
+    @ConfigDescription("Max keys for ListObjectsV2 API request")
+    public HiveS3Config setS3MaxKeysForListObjects(int maxKeysForListObjects)
+    {
+        this.s3MaxKeysForListObjects = maxKeysForListObjects;
         return this;
     }
 }

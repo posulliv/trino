@@ -35,6 +35,7 @@ import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_BACKOFF_TIME;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_CLIENT_RETRIES;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_CONNECTIONS;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_ERROR_RETRIES;
+import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_KEYS_FOR_LIST_OBJECTS;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MAX_RETRY_TIME;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MULTIPART_MIN_FILE_SIZE;
 import static io.trino.plugin.hive.s3.TrinoS3FileSystem.S3_MULTIPART_MIN_PART_SIZE;
@@ -110,6 +111,7 @@ public class TrinoS3ConfigurationInitializer
     private final boolean s3preemptiveBasicProxyAuth;
     private final String s3StsEndpoint;
     private final String s3StsRegion;
+    private final int maxKeysForListObjects;
 
     @Inject
     public TrinoS3ConfigurationInitializer(HiveS3Config config)
@@ -155,6 +157,7 @@ public class TrinoS3ConfigurationInitializer
         this.s3preemptiveBasicProxyAuth = config.getS3PreemptiveBasicProxyAuth();
         this.s3StsEndpoint = config.getS3StsEndpoint();
         this.s3StsRegion = config.getS3StsRegion();
+        this.maxKeysForListObjects = config.getS3MaxKeysForListObjects();
     }
 
     @Override
@@ -242,5 +245,6 @@ public class TrinoS3ConfigurationInitializer
         if (s3StsRegion != null) {
             config.set(S3_STS_REGION, s3StsRegion);
         }
+        config.setInt(S3_MAX_KEYS_FOR_LIST_OBJECTS, maxKeysForListObjects);
     }
 }
