@@ -32,7 +32,6 @@ import io.trino.spi.eventlistener.QueryStatistics;
 import io.trino.spi.eventlistener.SplitCompletedEvent;
 import io.trino.spi.resourcegroups.QueryType;
 import io.trino.spi.resourcegroups.ResourceGroupId;
-import jakarta.annotation.PostConstruct;
 
 import java.time.Duration;
 import java.util.List;
@@ -74,12 +73,6 @@ public class MysqlEventListener
         this.inputsJsonCodec = requireNonNull(inputsJsonCodec, "inputsJsonCodec is null");
         this.outputJsonCodec = requireNonNull(outputJsonCodec, "outputJsonCodec is null");
         this.warningsJsonCodec = requireNonNull(warningsJsonCodec, "warningsJsonCodec is null");
-    }
-
-    @PostConstruct
-    public void createTable()
-    {
-        dao.createTable();
     }
 
     @Override

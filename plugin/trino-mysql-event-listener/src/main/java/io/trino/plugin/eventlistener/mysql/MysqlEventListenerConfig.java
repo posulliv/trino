@@ -14,11 +14,15 @@
 package io.trino.plugin.eventlistener.mysql;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
+import io.airlift.configuration.ConfigSecuritySensitive;
 import jakarta.validation.constraints.NotNull;
 
 public class MysqlEventListenerConfig
 {
     private String url;
+    private String user;
+    private String password;
 
     @NotNull
     public String getUrl()
@@ -27,9 +31,37 @@ public class MysqlEventListenerConfig
     }
 
     @Config("mysql-event-listener.db.url")
+    @ConfigDescription("MySQL database url")
     public MysqlEventListenerConfig setUrl(String url)
     {
         this.url = url;
+        return this;
+    }
+
+    public String getUser()
+    {
+        return user;
+    }
+
+    @Config("mysql-event-listener.db.user")
+    @ConfigDescription("MySQL database user name")
+    public MysqlEventListenerConfig setUser(String configUser)
+    {
+        this.user = configUser;
+        return this;
+    }
+
+    public String getPassword()
+    {
+        return password;
+    }
+
+    @ConfigSecuritySensitive
+    @Config("mysql-event-listener.db.password")
+    @ConfigDescription("MySQL database password")
+    public MysqlEventListenerConfig setPassword(String configPassword)
+    {
+        this.password = configPassword;
         return this;
     }
 }

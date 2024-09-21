@@ -24,6 +24,7 @@ import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import com.mysql.cj.jdbc.Driver;
 import io.airlift.bootstrap.Bootstrap;
+import io.airlift.configuration.ConfigurationFactory;
 import io.airlift.json.JsonModule;
 import io.trino.spi.TrinoWarning;
 import io.trino.spi.eventlistener.EventListener;
@@ -39,6 +40,7 @@ import java.util.Properties;
 import java.util.Set;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
+import static io.airlift.configuration.ConfigurationUtils.replaceEnvironmentVariables;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 
 public class MysqlEventListenerFactory
@@ -53,6 +55,7 @@ public class MysqlEventListenerFactory
     @Override
     public EventListener create(Map<String, String> config)
     {
+        FlywayMigration.migrate(new ConfigurationFactory(replaceEnvironmentVariables(config)).build(MysqlEventListenerConfig.class));
         Bootstrap app = new Bootstrap(
                 new JsonModule(),
                 new MysqlDataSourceModule(),
@@ -87,7 +90,10 @@ public class MysqlEventListenerFactory
         @Provides
         public ConnectionFactory createConnectionFactory(MysqlEventListenerConfig config)
         {
-            return () -> new Driver().connect(config.getUrl(), new Properties());
+            Properties properties = new Properties();
+            properties.put("user", config.getUser());
+            properties.put("password", config.getPassword());
+            return () -> new Driver().connect(config.getUrl(), properties);
         }
 
         @Singleton

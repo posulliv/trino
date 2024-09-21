@@ -27,17 +27,23 @@ final class TestMysqlEventListenerConfig
     void testDefaults()
     {
         assertRecordedDefaults(recordDefaults(MysqlEventListenerConfig.class)
-                .setUrl(null));
+                .setUrl(null)
+                .setUser(null)
+                .setPassword(null));
     }
 
     @Test
     void testExplicitPropertyMappings()
     {
         Map<String, String> properties = Map.of(
-                "mysql-event-listener.db.url", "abc");
+                "mysql-event-listener.db.url", "abc",
+                "mysql-event-listener.db.user", "username",
+                "mysql-event-listener.db.password", "password");
 
         MysqlEventListenerConfig expected = new MysqlEventListenerConfig()
-                .setUrl("abc");
+                .setUrl("abc")
+                .setUser("username")
+                .setPassword("password");
 
         assertFullMapping(properties, expected);
     }

@@ -54,13 +54,13 @@
         </dependency>
 
         <dependency>
-            <groupId>jakarta.annotation</groupId>
-            <artifactId>jakarta.annotation-api</artifactId>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
         </dependency>
 
         <dependency>
-            <groupId>jakarta.validation</groupId>
-            <artifactId>jakarta.validation-api</artifactId>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
         </dependency>
 
         <dependency>
@@ -107,6 +107,12 @@
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
             <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>

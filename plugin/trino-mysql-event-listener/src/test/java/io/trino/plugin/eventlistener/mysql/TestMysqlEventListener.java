@@ -349,7 +349,10 @@ final class TestMysqlEventListener
         mysqlContainer.start();
         mysqlContainerUrl = getJdbcUrl(mysqlContainer);
         eventListener = new MysqlEventListenerFactory()
-                .create(Map.of("mysql-event-listener.db.url", mysqlContainerUrl));
+                .create(Map.of(
+                        "mysql-event-listener.db.url", mysqlContainer.getJdbcUrl(),
+                        "mysql-event-listener.db.user", mysqlContainer.getUsername(),
+                        "mysql-event-listener.db.password", mysqlContainer.getPassword()));
         jsonCodecFactory = new JsonCodecFactory();
     }
 
